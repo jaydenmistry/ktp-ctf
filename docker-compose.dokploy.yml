@@ -1,0 +1,60 @@
+# Compose file for deploying on Dokploy.
+# Traefik (managed by Dokploy) handles HTTPS and routing, so there is no nginx
+# service and no host port bindings. Secrets come from the Dokploy Environment tab.
+services:
+  ctfd:
+    build: .
+    restart: always
+    expose:
+      - "8000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - UPLOAD_FOLDER=/var/uploads
+      - DATABASE_URL=mysql+pymysql://ctfd:${DB_PASSWORD}@db/ctfd
+      - REDIS_URL=redis://cache:6379
+      - WORKERS=${WORKERS:-2}
+      - LOG_FOLDER=/var/log/CTFd
+      - ACCESS_LOG=-
+      - ERROR_LOG=-
+      - REVERSE_PROXY=true
+    volumes:
+      - ctfd-logs:/var/log/CTFd
+      - ctfd-uploads:/var/uploads
+    depends_on:
+      - db
+      - cache
+    networks:
+      - default
+      - dokploy-network
+
+  db:
+    image: mariadb:10.11
+    restart: always
+    environment:
+      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MARIADB_USER=ctfd
+      - MARIADB_PASSWORD=${DB_PASSWORD}
+      - MARIADB_DATABASE=ctfd
+      - MARIADB_AUTO_UPGRADE=1
+    volumes:
+      - ctfd-mysql:/var/lib/mysql
+    # This command is required to set important mariadb defaults
+    command: [mysqld, --character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --wait_timeout=28800, --log-warnings=0]
+
+  cache:
+    image: redis:4
+    restart: always
+    volumes:
+      - ctfd-redis:/data
+
+# Named volumes survive redeploys; Dokploy re-clones the repo on every deploy,
+# so relative bind mounts like .data/ would be wiped.
+volumes:
+  ctfd-logs:
+  ctfd-uploads:
+  ctfd-mysql:
+  ctfd-redis:
+
+networks:
+  dokploy-network:
+    external: true
